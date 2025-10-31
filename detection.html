@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gemini + BlazeFace - Perfect Mask Detection</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.7.4/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family: "Segoe UI", sans-serif;
+      }
+      body {
+        background: linear-gradient(135deg, #ff8c00, #ffa733);
+        color: #fff;
+        min-height: 100vh;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      .container {
+        background: rgba(255, 255, 255, 0.15);
+        backdrop-filter: blur(10px);
+        border-radius: 20px;
+        padding: 30px;
+        max-width: 800px;
+        width: 100%;
+        text-align: center;
+        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        margin-top: 20px;
+      }
+      .logo {
+        width: 90px;
+        height: 90px;
+        background: #fff;
+        border-radius: 50%;
+        margin: 0 auto 15px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 6px 15px rgba(0, 0, 0, 0.2);
+      }
+      .logo img {
+        width: 60px;
+        filter: brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(0deg);
+      }
+      h1 {
+        font-size: 2.2rem;
+        margin-bottom: 10px;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+      }
+      p.subtitle {
+        font-size: 1.1rem;
+        margin-bottom: 25px;
+        opacity: 0.9;
+      }
+      .camera-box {
+        position: relative;
+        width: 100%;
+        max-width: 640px;
+        margin: 0 auto 20px;
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+        background: #000;
+      }
+      #video {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+      canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+      }
+      .btn {
+        background: #fff;
+        color: #ff6b00;
+        padding: 12px 28px;
+        border: none;
+        border-radius: 50px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: 0.3s;
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+      }
+      .btn:hover {
+        background: #ff6b00;
+        color: #fff;
+        transform: translateY(-3px);
+      }
+      .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .status {
+        margin-top: 15px;
+        font-size: 1.1rem;
+        font-weight: 600;
+      }
+      .with-mask {
+        color: #a8ffbd;
+      }
+      .without-mask {
+        color: #ff6b6b;
+      }
+      .loading {
+        color: #ffd700;
+      }
+      .back-btn {
+        margin-top: 30px;
+        font-size: 0.9rem;
+        opacity: 0.8;
+      }
+      .back-btn a {
+        color: #fff;
+        text-decoration: underline;
+      }
+      @media (max-width: 768px) {
+        h1 {
+          font-size: 1.8rem;
+        }
+        .btn {
+          width: 80%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="logo">
+        <img
+          src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgc3R5bGU9ImZpbGw6I2ZmNmIwMCIvPjxwYXRoIGQ9Ik00MCA2MGg2MHYtMjBIMDB6IiBzdHlsZT0iZmlsbDogI2ZmZmZmZiIvPjwvc3ZnPg=="
+          alt="Mask"
+        />
+      </div>
+      <h1>AI Mask Detection</h1>
+      <p class="subtitle">BlazeFace (Tracking) + Gemini AI (Mask Check)</p>
+
+      <div class="camera-box">
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas"></canvas>
+      </div>
+
+      <div class="btn-group">
+        <button id="startBtn" class="btn">Start Detection</button>
+        <button id="stopBtn" class="btn" disabled>Stop</button>
+      </div>
+
+      <div class="status" id="status">Click Start to begin</div>
+      <div class="back-btn"><a href="index.html">Back to Home</a></div>
+    </div>
+
+    <script>
+      const API_KEY = "AIzaSyAoZi3p8YG2jk8ZaMr0cyTJbUgF84Cj-qg";
+      const GEMINI_API = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
+
+      const video = document.getElementById("video");
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+      const status = document.getElementById("status");
+      const startBtn = document.getElementById("startBtn");
+      const stopBtn = document.getElementById("stopBtn");
+
+      let model,
+        stream,
+        isRunning = false;
+      let lastDetections = []; // For tracking
+
+      // Load BlazeFace for face detection
+      async function loadModel() {
+        status.textContent = "Loading AI models...";
+        status.className = "status loading";
+        model = await blazeface.load();
+        status.textContent = "Ready! Click Start";
+        startBtn.disabled = false;
+      }
+
+      async function startCamera() {
+        if (isRunning) return;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true });
+          video.srcObject = stream;
+          video.onloadedmetadata = () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            isRunning = true;
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+            detectLoop();
+          };
+        } catch (err) {
+          status.textContent = "Camera access denied!";
+          status.className = "status without-mask";
+        }
+      }
+
+      function stopCamera() {
+        if (stream) {
+          stream.getTracks().forEach((t) => t.stop());
+          video.srcObject = null;
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          isRunning = false;
+          startBtn.disabled = false;
+          stopBtn.disabled = true;
+          status.textContent = "Stopped.";
+          lastDetections = [];
+        }
+      }
+
+      async function detectLoop() {
+        if (!isRunning) return;
+
+        const predictions = await model.estimateFaces(video, false);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        let masked = 0,
+          total = 0;
+
+        for (const pred of predictions) {
+          const [x, y] = pred.topLeft;
+          const [w, h] = [pred.bottomRight[0] - x, pred.bottomRight[1] - y];
+          total++;
+
+          // Crop face
+          const faceCanvas = document.createElement("canvas");
+          faceCanvas.width = w;
+          faceCanvas.height = h;
+          const faceCtx = faceCanvas.getContext("2d");
+          faceCtx.drawImage(video, x, y, w, h, 0, 0, w, h);
+
+          // Send to Gemini only if not recently checked
+          const recent = lastDetections.find(
+            (d) => Math.abs(d.x - x) < 30 && Math.abs(d.y - y) < 30
+          );
+          let hasMask = recent ? recent.hasMask : false;
+
+          if (!recent) {
+            hasMask = await checkMaskWithGemini(faceCanvas);
+            lastDetections.push({ x, y, hasMask, timestamp: Date.now() });
+          }
+
+          // Draw box
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = hasMask ? "#a8ffbd" : "#ff6b6b";
+          ctx.fillStyle = hasMask ? "#a8ffbd" : "#ff6b6b";
+          ctx.strokeRect(x, y, w, h);
+          ctx.font = 'bold 18px "Segoe UI"';
+          ctx.fillText(hasMask ? "With Mask" : "No Mask", x, y - 8);
+
+          if (hasMask) masked++;
+        }
+
+        // Cleanup old detections
+        lastDetections = lastDetections.filter(
+          (d) => Date.now() - d.timestamp < 3000
+        );
+
+        status.textContent =
+          total > 0 ? `${masked}/${total} wearing mask` : "No face";
+        status.className = `status ${
+          masked === total ? "with-mask" : "without-mask"
+        }`;
+
+        requestAnimationFrame(detectLoop);
+      }
+
+      async function checkMaskWithGemini(faceCanvas) {
+        return new Promise((resolve) => {
+          faceCanvas.toBlob(
+            async (blob) => {
+              const base64 = await blobToBase64(blob);
+              const imagePart = {
+                inline_data: {
+                  mime_type: "image/jpeg",
+                  data: base64.split(",")[1],
+                },
+              };
+
+              const prompt =
+                "Is this person wearing a mask? Answer only: yes or no";
+
+              try {
+                const res = await fetch(GEMINI_API, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    contents: [
+                      { role: "user", parts: [imagePart, { text: prompt }] },
+                    ],
+                  }),
+                });
+                const data = await res.json();
+                const answer = data.candidates[0].content.parts[0].text
+                  .trim()
+                  .toLowerCase();
+                resolve(answer === "yes");
+              } catch (err) {
+                resolve(false); // Fallback
+              }
+            },
+            "image/jpeg",
+            0.8
+          );
+        });
+      }
+
+      function blobToBase64(blob) {
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        });
+      }
+
+      startBtn.addEventListener("click", startCamera);
+      stopBtn.addEventListener("click", stopCamera);
+      window.onload = loadModel;
+    </script>
+  </body>
+</html>
